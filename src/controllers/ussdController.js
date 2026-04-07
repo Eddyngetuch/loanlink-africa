@@ -17,8 +17,57 @@ exports.handleUssd = async (req, res) => {
   try {
     switch (state) {
       case 'INIT':
-        response = formatResponse('Welcome to LoanLink Africa.\nPlease enter your National ID number:');
-        newState = 'GET_ID';
+        response = formatResponse('Welcome to LoanLink Africa – instant loans up to KES 50,000.\n1. Apply for loan\n2. Check status\n3. Repay loan');
+        newState = 'MAIN_MENU';
+        break;
+
+      case 'MAIN_MENU':
+        if (userInput === '1') {
+          response = formatResponse('Enter your National ID number (8 digits):');
+          newState = 'GET_ID';
+        } else if (userInput === '2') {
+          const user = await db.query('SELECT id FROM users WHERE phone = $1', [phoneNumber]);
+          if (user.rows.length === 0) {
+            response = formatResponse('You are not registered. Please apply for a loan first.', true);
+            newState = 'END';
+          } else {
+            const loan = await db.query(
+              `SELECT status, amount FROM loans WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+              [user.rows[0].id]
+            );
+            if (loan.rows.length === 0) {
+              response = formatResponse('You have no loan applications.', true);
+            } else {
+              response = formatResponse(`Your last loan: KES ${loan.rows[0].amount}, status: ${loan.rows[0].status}`, true);
+            }
+            newState = 'END';
+          }
+        } else if (userInput === '3') {
+          const user = await db.query('SELECT id FROM users WHERE phone = $1', [phoneNumber]);
+          if (user.rows.length === 0) {
+            response = formatResponse('You are not registered. Please apply for a loan first.', true);
+            newState = 'END';
+          } else {
+            const loan = await db.query(
+              `SELECT id, amount FROM loans 
+               WHERE user_id = $1 AND status = 'disbursed' AND repaid_at IS NULL 
+               ORDER BY created_at DESC LIMIT 1`,
+              [user.rows[0].id]
+            );
+            if (loan.rows.length === 0) {
+              response = formatResponse('You have no active loan to repay.', true);
+              newState = 'END';
+            } else {
+              await redis.set(`ussd:temp:${sessionId}:repay_loan_id`, loan.rows[0].id);
+              await redis.set(`ussd:temp:${sessionId}:repay_amount`, loan.rows[0].amount);
+              response = formatResponse(`Your outstanding loan is KES ${loan.rows[0].amount}. Repay now?\n1. Yes\n2. No`);
+              newState = 'REPAY_CONFIRM';
+            }
+          }
+        } else {
+          response = formatResponse('Invalid option. Choose 1, 2, or 3.');
+          newState = 'MAIN_MENU';
+        }
         break;
 
       case 'GET_ID':
@@ -35,27 +84,26 @@ exports.handleUssd = async (req, res) => {
         } else {
           await db.query('UPDATE users SET national_id = $1 WHERE phone = $2', [nationalId, phoneNumber]);
         }
-        response = formatResponse(
-          'Select your preferred loan range:\n1. Ksh 0 - 49,999\n2. Ksh 50,000 - 99,000\n3. Ksh 100,000 - 120,000'
-        );
+        response = formatResponse('Select loan amount:\n1. KES 5,000\n2. KES 10,000\n3. KES 20,000\n4. KES 50,000');
         newState = 'SELECT_RANGE';
         break;
 
       case 'SELECT_RANGE':
         let amount;
         switch (userInput) {
-          case '1': amount = 25000; break;
-          case '2': amount = 75000; break;
-          case '3': amount = 110000; break;
+          case '1': amount = 5000; break;
+          case '2': amount = 10000; break;
+          case '3': amount = 20000; break;
+          case '4': amount = 50000; break;
           default:
-            response = formatResponse('Invalid choice. Select 1, 2, or 3:');
+            response = formatResponse('Invalid choice. Select 1, 2, 3, or 4:');
             newState = 'SELECT_RANGE';
             break;
         }
         if (amount) {
           await redis.set(`ussd:temp:${sessionId}:amount`, amount);
           response = formatResponse(
-            `You qualify for a loan of Ksh ${amount.toLocaleString()}. Repay in 6 months.\nA processing fee of Ksh 99 is required.\n1. Pay now\n2. Cancel`
+            `You qualify for KES ${amount.toLocaleString()}. Repay in 30 days.\nProcessing fee KES 99 applies.\n1. Accept and pay fee\n2. Cancel`
           );
           newState = 'CONFIRM_FEE';
         }
@@ -83,7 +131,7 @@ exports.handleUssd = async (req, res) => {
               [userId, loanId, 99, paymentResult.MerchantRequestID]
             );
             response = formatResponse(
-              `CONFIRMED! Congratulations, your loan of Ksh ${amount.toLocaleString()} has been approved.\nYou will receive an M-Pesa prompt to pay the Ksh 99 processing fee.\nAfter payment, the loan will be sent to your M-Pesa.\nOffer expires in 24 hours.`,
+              `CONFIRMED! Your loan of KES ${amount.toLocaleString()} will be sent to your M‑Pesa within 5 minutes.\nOffer expires in 24 hours.`,
               true
             );
           } else {
@@ -91,6 +139,21 @@ exports.handleUssd = async (req, res) => {
           }
         } else {
           response = formatResponse('Transaction cancelled. Thank you for using LoanLink Africa.', true);
+        }
+        newState = 'END';
+        break;
+
+      case 'REPAY_CONFIRM':
+        if (userInput === '1') {
+          const loanId = await redis.get(`ussd:temp:${sessionId}:repay_loan_id`);
+          // Simulated repayment – in real system you'd initiate STK push for the loan amount
+          await db.query(
+            `UPDATE loans SET status = 'repaid', repaid_at = NOW() WHERE id = $1`,
+            [loanId]
+          );
+          response = formatResponse('Repayment successful. Thank you for trusting LoanLink Africa.', true);
+        } else {
+          response = formatResponse('Repayment cancelled.', true);
         }
         newState = 'END';
         break;
