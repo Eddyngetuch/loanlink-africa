@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const migrate = require('./src/utils/migrate');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
-    ? ['https://yourdomain.com', 'https://admin.yourdomain.com'] // replace with your domains
+    ? ['https://yourdomain.com', 'https://admin.yourdomain.com']
     : '*',
   optionsSuccessStatus: 200
 }));
@@ -20,10 +21,10 @@ app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(morgan('dev'));
 
-// Rate limiting (prevent abuse)
+// Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -33,7 +34,7 @@ app.get('/', (req, res) => {
   res.json({ status: 'LoanLink Africa API is running' });
 });
 
-// Import routes
+// Routes
 const ussdRoutes = require('./src/routes/ussd');
 const mpesaRoutes = require('./src/routes/mpesa');
 const adminRoutes = require('./src/routes/admin');
@@ -47,7 +48,16 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+// Run migrations, then start server
+(async () => {
+  try {
+    await migrate();
+    console.log('✅ Migrations completed. Starting server...');
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('❌ Migration failed:', err);
+    process.exit(1);
+  }
+})();
