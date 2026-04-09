@@ -1,6 +1,6 @@
 const db = require('../utils/db');
 const redis = require('../utils/redis');
-const { initiateSTKPush } = require('../services/mpesa');
+const { initiateSTKPush, disburseLoan } = require('../services/mpesa');
 
 const formatResponse = (message, isEnd = false) => {
   return isEnd ? `END ${message}` : `CON ${message}`;
@@ -116,6 +116,7 @@ exports.handleUssd = async (req, res) => {
           const userRes = await db.query('SELECT id FROM users WHERE phone = $1', [phoneNumber]);
           const userId = userRes.rows[0].id;
 
+          // Create loan record
           const loanRes = await db.query(
             `INSERT INTO loans (user_id, amount, loan_offer_expires_at) 
              VALUES ($1, $2, NOW() + INTERVAL '24 hours') RETURNING id`,
@@ -123,15 +124,39 @@ exports.handleUssd = async (req, res) => {
           );
           const loanId = loanRes.rows[0].id;
 
+          // Simulate STK push
           const paymentResult = await initiateSTKPush(phoneNumber, 99, loanId, sessionId);
           if (paymentResult && paymentResult.MerchantRequestID) {
+            // Insert payment record
             await db.query(
               `INSERT INTO payments (user_id, loan_id, amount, type, merchant_request_id, status)
                VALUES ($1, $2, $3, 'processing_fee', $4, 'pending')`,
               [userId, loanId, 99, paymentResult.MerchantRequestID]
             );
+
+            // Simulate successful payment callback
+            await db.query(
+              `UPDATE payments SET status = 'completed', mpesa_receipt = $1 WHERE merchant_request_id = $2`,
+              [`SIM_RECEIPT_${Date.now()}`, paymentResult.MerchantRequestID]
+            );
+            // Mark loan fee as paid
+            await db.query(
+              `UPDATE loans SET fee_paid = true, status = 'fee_paid' WHERE id = $1`,
+              [loanId]
+            );
+            // Simulate disbursement
+            const disbursement = await disburseLoan(loanId, phoneNumber, amount);
+            if (disbursement.success) {
+              await db.query(
+                `UPDATE loans SET status = 'disbursed', disbursed_at = NOW(), due_date = NOW() + INTERVAL '30 days', b2c_conversation_id = $1 WHERE id = $2`,
+                [disbursement.conversationId, loanId]
+              );
+            } else {
+              await db.query(`UPDATE loans SET status = 'disbursement_failed' WHERE id = $1`, [loanId]);
+            }
+
             response = formatResponse(
-              `CONFIRMED! Your loan of KES ${amount.toLocaleString()} will be sent to your M‑Pesa within 5 minutes.\nOffer expires in 24 hours.`,
+              `CONFIRMED! Your loan of KES ${amount.toLocaleString()} has been sent to your M‑Pesa.\nRepay in 30 days.`,
               true
             );
           } else {
@@ -146,7 +171,6 @@ exports.handleUssd = async (req, res) => {
       case 'REPAY_CONFIRM':
         if (userInput === '1') {
           const loanId = await redis.get(`ussd:temp:${sessionId}:repay_loan_id`);
-          // Simulated repayment – in real system you'd initiate STK push for the loan amount
           await db.query(
             `UPDATE loans SET status = 'repaid', repaid_at = NOW() WHERE id = $1`,
             [loanId]
