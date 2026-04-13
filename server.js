@@ -124,7 +124,25 @@ app.get('/setup', async (req, res) => {
     res.status(500).send('Setup failed: ' + err.message);
   }
 });
-
+app.get('/reset-admin', async (req, res) => {
+  const { Client } = require('pg');
+  const bcrypt = require('bcryptjs');
+  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  try {
+    await client.connect();
+    const hash = bcrypt.hashSync('admin123', 10);
+    await client.query(`
+      INSERT INTO admins (email, password_hash)
+      VALUES ('admin@loanlink.co.ke', $1)
+      ON CONFLICT (email) DO UPDATE SET password_hash = $1
+    `, [hash]);
+    await client.end();
+    res.send('✅ Admin password reset to admin123');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error: ' + err.message);
+  }
+});
 // ----------------------------
 // Routes
 // ----------------------------
