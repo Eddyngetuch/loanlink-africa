@@ -35,7 +35,7 @@ exports.getLoans = async (req, res) => {
 exports.updateLoan = async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
-  if (!['pending', 'fee_paid', 'disbursed', 'rejected', 'expired'].includes(status)) {
+  if (!['pending', 'fee_paid', 'disbursed', 'rejected', 'expired', 'repaid'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
   await db.query('UPDATE loans SET status = $1 WHERE id = $2', [status, id]);
