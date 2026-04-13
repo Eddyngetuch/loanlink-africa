@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
+  origin: process.env.NODE_ENV === 'production'
     ? ['https://yourdomain.com', 'https://admin.yourdomain.com']
     : '*',
   optionsSuccessStatus: 200
@@ -33,16 +34,36 @@ app.get('/', (req, res) => {
   res.json({ status: 'LoanLink Africa API is running' });
 });
 
-// Temporary database setup endpoint – remove after tables are created
-app.get('/setup', async (req, res) => {
+// ----------------------------
+// Temporary setup endpoints (remove after use)
+// ----------------------------
+
+// Create/update admin user (visit once)
+app.get('/create-admin', async (req, res) => {
   const { Client } = require('pg');
-  const client = new Client({ 
-    connectionString: process.env.DATABASE_URL, 
-    ssl: { rejectUnauthorized: false } 
-  });
+  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
   try {
     await client.connect();
-    
+    const hash = bcrypt.hashSync('admin123', 10);
+    await client.query(`
+      INSERT INTO admins (email, password_hash)
+      VALUES ('admin@loanlink.co.ke', $1)
+      ON CONFLICT (email) DO UPDATE SET password_hash = $1
+    `, [hash]);
+    await client.end();
+    res.send('✅ Admin user created/updated with password: admin123');
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Database setup (create tables if not exist)
+app.get('/setup', async (req, res) => {
+  const { Client } = require('pg');
+  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+  try {
+    await client.connect();
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -90,21 +111,23 @@ app.get('/setup', async (req, res) => {
         created_at TIMESTAMP DEFAULT NOW()
       );
     `);
+    const hash = bcrypt.hashSync('admin123', 10);
     await client.query(`
       INSERT INTO admins (email, password_hash)
-      VALUES ('admin@loanlink.co.ke', '$2b$10$8V5FwY2pI3xZq3O8L6wCZuMpQk7zNlP9uJkY2e5g6h7i8j9k0l1m2')
-      ON CONFLICT (email) DO NOTHING;
-    `);
-    
+      VALUES ('admin@loanlink.co.ke', $1)
+      ON CONFLICT (email) DO UPDATE SET password_hash = $1
+    `, [hash]);
     await client.end();
-    res.send('✅ Database setup complete');
+    res.send('✅ Database setup complete (tables created, admin user ready)');
   } catch (err) {
     console.error(err);
     res.status(500).send('Setup failed: ' + err.message);
   }
 });
 
+// ----------------------------
 // Routes
+// ----------------------------
 const ussdRoutes = require('./src/routes/ussd');
 const mpesaRoutes = require('./src/routes/mpesa');
 const adminRoutes = require('./src/routes/admin');
