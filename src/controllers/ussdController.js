@@ -80,9 +80,9 @@ exports.handleUssd = async (req, res) => {
         await redis.set(`ussd:temp:${sessionId}:nationalId`, nationalId);
         const userCheck = await db.query('SELECT id FROM users WHERE phone = $1', [phoneNumber]);
         if (userCheck.rows.length === 0) {
-          await db.run('INSERT INTO users (phone, national_id) VALUES ($1, $2)', [phoneNumber, nationalId]);
+          await db.query('INSERT INTO users (phone, national_id) VALUES ($1, $2)', [phoneNumber, nationalId]);
         } else {
-          await db.run('UPDATE users SET national_id = $1 WHERE phone = $2', [nationalId, phoneNumber]);
+          await db.query('UPDATE users SET national_id = $1 WHERE phone = $2', [nationalId, phoneNumber]);
         }
         response = formatResponse('Select loan amount:\n1. KES 5,000\n2. KES 10,000\n3. KES 20,000\n4. KES 50,000');
         newState = 'SELECT_RANGE';
@@ -116,38 +116,38 @@ exports.handleUssd = async (req, res) => {
           const userRes = await db.query('SELECT id FROM users WHERE phone = $1', [phoneNumber]);
           const userId = userRes.rows[0].id;
 
-          // Insert loan with SQLite datetime
-          const loanRes = await db.run(
+          const loanRes = await db.query(
             `INSERT INTO loans (user_id, amount, loan_offer_expires_at) 
-             VALUES ($1, $2, datetime('now', '+24 hours'))`,
+             VALUES ($1, $2, NOW() + INTERVAL '24 hours') RETURNING id`,
             [userId, amount]
           );
-          const loanId = loanRes.lastID;
+          const loanId = loanRes.rows[0].id;
 
           const paymentResult = await initiateSTKPush(phoneNumber, 99, loanId, sessionId);
           if (paymentResult && paymentResult.MerchantRequestID) {
-            await db.run(
+            await db.query(
               `INSERT INTO payments (user_id, loan_id, amount, type, merchant_request_id, status)
                VALUES ($1, $2, $3, 'processing_fee', $4, 'pending')`,
               [userId, loanId, 99, paymentResult.MerchantRequestID]
             );
 
-            await db.run(
+            // Simulate payment success
+            await db.query(
               `UPDATE payments SET status = 'completed', mpesa_receipt = $1 WHERE merchant_request_id = $2`,
               [`SIM_RECEIPT_${Date.now()}`, paymentResult.MerchantRequestID]
             );
-            await db.run(
-              `UPDATE loans SET fee_paid = 1, status = 'fee_paid' WHERE id = $1`,
+            await db.query(
+              `UPDATE loans SET fee_paid = true, status = 'fee_paid' WHERE id = $1`,
               [loanId]
             );
             const disbursement = await disburseLoan(loanId, phoneNumber, amount);
             if (disbursement.success) {
-              await db.run(
-                `UPDATE loans SET status = 'disbursed', disbursed_at = datetime('now'), due_date = datetime('now', '+30 days'), b2c_conversation_id = $1 WHERE id = $2`,
+              await db.query(
+                `UPDATE loans SET status = 'disbursed', disbursed_at = NOW(), due_date = NOW() + INTERVAL '30 days', b2c_conversation_id = $1 WHERE id = $2`,
                 [disbursement.conversationId, loanId]
               );
             } else {
-              await db.run(`UPDATE loans SET status = 'disbursement_failed' WHERE id = $1`, [loanId]);
+              await db.query(`UPDATE loans SET status = 'disbursement_failed' WHERE id = $1`, [loanId]);
             }
 
             response = formatResponse(
@@ -166,8 +166,8 @@ exports.handleUssd = async (req, res) => {
       case 'REPAY_CONFIRM':
         if (userInput === '1') {
           const loanId = await redis.get(`ussd:temp:${sessionId}:repay_loan_id`);
-          await db.run(
-            `UPDATE loans SET status = 'repaid', repaid_at = datetime('now') WHERE id = $1`,
+          await db.query(
+            `UPDATE loans SET status = 'repaid', repaid_at = NOW() WHERE id = $1`,
             [loanId]
           );
           response = formatResponse('Repayment successful. Thank you for trusting LoanLink Africa.', true);
@@ -190,8 +190,7 @@ exports.handleUssd = async (req, res) => {
 
     res.send(response);
   } catch (error) {
-    console.error('❌ USSD error:', error);
-    console.error('❌ Full error details:', error.stack);
+    console.error('USSD error:', error);
     res.send(formatResponse('An error occurred. Please try again.', true));
   }
 };

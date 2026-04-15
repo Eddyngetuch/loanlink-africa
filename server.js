@@ -9,56 +9,20 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
 app.use(helmet());
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://yourdomain.com', 'https://admin.yourdomain.com']
-    : '*',
-  optionsSuccessStatus: 200
-}));
+app.use(cors({ origin: '*', optionsSuccessStatus: 200 }));
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(morgan('dev'));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: 'Too many requests from this IP, please try again later.'
-});
+const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
 app.use('/api/', limiter);
 
-// Health check
 app.get('/', (req, res) => {
   res.json({ status: 'LoanLink Africa API is running' });
 });
 
-// ----------------------------
-// Temporary setup endpoints (remove after use)
-// ----------------------------
-
-// Create/update admin user (visit once)
-app.get('/create-admin', async (req, res) => {
-  const { Client } = require('pg');
-  const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-  try {
-    await client.connect();
-    const hash = bcrypt.hashSync('admin123', 10);
-    await client.query(`
-      INSERT INTO admins (email, password_hash)
-      VALUES ('admin@loanlink.co.ke', $1)
-      ON CONFLICT (email) DO UPDATE SET password_hash = $1
-    `, [hash]);
-    await client.end();
-    res.send('✅ Admin user created/updated with password: admin123');
-  } catch (err) {
-    console.error(err);
-    res.status(500).send('Error: ' + err.message);
-  }
-});
-
-// Database setup (create tables if not exist)
+// Setup database tables and admin user
 app.get('/setup', async (req, res) => {
   const { Client } = require('pg');
   const client = new Client({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
@@ -72,8 +36,6 @@ app.get('/setup', async (req, res) => {
         full_name VARCHAR(100),
         registered_at TIMESTAMP DEFAULT NOW()
       );
-    `);
-    await client.query(`
       CREATE TABLE IF NOT EXISTS loans (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
@@ -88,8 +50,6 @@ app.get('/setup', async (req, res) => {
         created_at TIMESTAMP DEFAULT NOW(),
         b2c_conversation_id VARCHAR(100)
       );
-    `);
-    await client.query(`
       CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY,
         user_id INTEGER REFERENCES users(id),
@@ -101,8 +61,6 @@ app.get('/setup', async (req, res) => {
         status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT NOW()
       );
-    `);
-    await client.query(`
       CREATE TABLE IF NOT EXISTS admins (
         id SERIAL PRIMARY KEY,
         email VARCHAR(100) UNIQUE NOT NULL,
@@ -118,12 +76,14 @@ app.get('/setup', async (req, res) => {
       ON CONFLICT (email) DO UPDATE SET password_hash = $1
     `, [hash]);
     await client.end();
-    res.send('✅ Database setup complete (tables created, admin user ready)');
+    res.send('✅ Database setup complete. Admin: admin@loanlink.co.ke / admin123');
   } catch (err) {
     console.error(err);
     res.status(500).send('Setup failed: ' + err.message);
   }
 });
+
+// Reset admin password
 app.get('/reset-admin', async (req, res) => {
   const { Client } = require('pg');
   const bcrypt = require('bcryptjs');
@@ -143,9 +103,8 @@ app.get('/reset-admin', async (req, res) => {
     res.status(500).send('Error: ' + err.message);
   }
 });
-// ----------------------------
+
 // Routes
-// ----------------------------
 const ussdRoutes = require('./src/routes/ussd');
 const mpesaRoutes = require('./src/routes/mpesa');
 const adminRoutes = require('./src/routes/admin');
@@ -153,13 +112,11 @@ app.use('/ussd', ussdRoutes);
 app.use('/api/mpesa', mpesaRoutes);
 app.use('/api/admin', adminRoutes);
 
-// Global error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

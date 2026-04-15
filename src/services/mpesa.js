@@ -1,17 +1,9 @@
-const axios = require('axios'); // kept for compatibility, not used
+const express = require('express');
+const { handleStkCallback, b2cResult, b2cTimeout } = require('../controllers/mpesaController');
 
-async function getAccessToken() {
-  return 'simulated_token';
-}
+const router = express.Router();
+router.post('/callback', handleStkCallback);
+router.post('/b2c/result', b2cResult);
+router.post('/b2c/timeout', b2cTimeout);
 
-async function initiateSTKPush(phone, amount, loanId, sessionId) {
-  console.log(`[SIMULATION] STK push to ${phone} for KES ${amount} (loan ${loanId})`);
-  return { MerchantRequestID: `SIM_${Date.now()}` };
-}
-
-async function disburseLoan(loanId, phone, amount) {
-  console.log(`[SIMULATION] Disbursing KES ${amount} to ${phone} (loan ${loanId})`);
-  return { success: true, conversationId: `SIM_CONV_${Date.now()}` };
-}
-
-module.exports = { getAccessToken, initiateSTKPush, disburseLoan };
+module.exports = router;
