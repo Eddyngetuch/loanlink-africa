@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 const Loans = ({ token }) => {
   const [loans, setLoans] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -9,7 +11,7 @@ const Loans = ({ token }) => {
 
   const fetchLoans = async () => {
     try {
-      const res = await axios.get('/api/admin/loans', {
+      const res = await axios.get(`${API_URL}/api/admin/loans`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setLoans(res.data);
@@ -27,7 +29,7 @@ const Loans = ({ token }) => {
   const updateLoanStatus = async (loanId, status) => {
     setActionLoading(loanId);
     try {
-      await axios.put(`/api/admin/loans/${loanId}`, { status }, {
+      await axios.put(`${API_URL}/api/admin/loans/${loanId}`, { status }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       await fetchLoans();

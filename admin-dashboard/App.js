@@ -5,6 +5,8 @@ import Loans from './components/Loans';
 import Payments from './components/Payments';
 import ExportData from './components/ExportData';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,7 +16,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('/api/admin/login', { email, password });
+      const res = await axios.post(`${API_URL}/api/admin/login`, { email, password });
       localStorage.setItem('token', res.data.token);
       setToken(res.data.token);
       setError('');
@@ -34,14 +36,8 @@ function App() {
         <h2>Admin Login</h2>
         {error && <p style={{ color: 'red' }}>{error}</p>}
         <form onSubmit={handleLogin}>
-          <div>
-            <label>Email:</label><br />
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: '300px', padding: '8px', marginBottom: '10px' }} />
-          </div>
-          <div>
-            <label>Password:</label><br />
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ width: '300px', padding: '8px', marginBottom: '10px' }} />
-          </div>
+          <div><label>Email:</label><br /><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: '300px', padding: '8px', marginBottom: '10px' }} /></div>
+          <div><label>Password:</label><br /><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ width: '300px', padding: '8px', marginBottom: '10px' }} /></div>
           <button type="submit" style={{ padding: '8px 16px' }}>Login</button>
         </form>
       </div>

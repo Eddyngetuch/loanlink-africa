@@ -1,6 +1,8 @@
 import React from 'react';
 import axios from 'axios';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 const ExportData = ({ token }) => {
   const exportToCSV = async (type) => {
     let url = '';
@@ -12,7 +14,9 @@ const ExportData = ({ token }) => {
       default: return;
     }
     try {
-      const res = await axios.get(url, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API_URL}${url}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = res.data;
       if (!data.length) { alert('No data to export'); return; }
       const headers = Object.keys(data[0]);

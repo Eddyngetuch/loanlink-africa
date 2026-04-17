@@ -5,6 +5,8 @@ import Loans from './components/Loans';
 import Payments from './components/Payments';
 import ExportData from './components/ExportData';
 
+const API_URL = process.env.REACT_APP_API_URL || '';
+
 function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -14,7 +16,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('/api/admin/login', { email, password });
+      const res = await axios.post(`${API_URL}/api/admin/login`, { email, password });
       localStorage.setItem('token', res.data.token);
       setToken(res.data.token);
       setError('');
